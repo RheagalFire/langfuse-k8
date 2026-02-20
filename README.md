@@ -123,7 +123,13 @@ langfuse-k8/
 │           ├── main.tf           # Lambda + Alarm + EventBridge pipeline
 │           ├── variables.tf      # Terraform variables
 │           └── outputs.tf        # Terraform outputs
-└── iam/
+├── policies/                              # Operator setup IAM policies (attach to deployer)
+│   ├── eksctl-cluster-policy.json         # EKS cluster creation (eksctl)
+│   ├── terraform-maintenance-policy.json  # Lambda + Alarm Terraform apply
+│   ├── vpc-networking-policy.json         # VPC tagging & SG rules (existing VPC)
+│   ├── helm-deploy-policy.json            # Helm install + kubectl access
+│   └── s3-bucket-setup-policy.json        # S3 bucket + IAM user creation
+└── iam/                                   # Runtime IAM policies (attached to services)
     ├── s3-policy.json            # IAM policy for Langfuse S3 bucket access
     ├── cloudwatch-policy.json    # IAM policy for PVC monitor CloudWatch metrics
     ├── ebs-csi-policy.json       # IAM policy for EBS CSI driver
@@ -428,6 +434,24 @@ aws lambda invoke \
 
 ## IAM Policies Summary
 
+### Operator Setup Policies (`policies/`)
+
+These are attached to the **IAM user or role running the deployment**. Use them during initial setup.
+
+| Policy | Purpose | When Needed |
+|---|---|---|
+| `policies/eksctl-cluster-policy.json` | EKS cluster creation, VPC, node groups, CloudFormation, OIDC | Step 1 — `eksctl create cluster` |
+| `policies/vpc-networking-policy.json` | Subnet tagging, security group rules for existing VPC | Step 1 (existing VPC only) |
+| `policies/s3-bucket-setup-policy.json` | S3 bucket creation, IAM user for Langfuse | Step 5 — S3 + IAM user setup |
+| `policies/helm-deploy-policy.json` | EKS API access, ECR pull, kubeconfig | Steps 2–10 — `kubectl` and `helm` |
+| `policies/terraform-maintenance-policy.json` | Lambda, EventBridge, CloudWatch Alarm, SNS, IAM role | Maintenance — `terraform apply` |
+
+> **Tip:** For a single operator doing the full setup, attach all five policies. For least-privilege, attach only the policies needed for each step.
+
+### Runtime Service Policies (`iam/`)
+
+These are attached to **services running inside the cluster** (IRSA, instance roles, Lambda roles).
+
 | Policy | Purpose | Attached To |
 |---|---|---|
 | `iam/s3-policy.json` | S3 bucket read/write for event upload, batch export, media upload | IAM user `langfuse-s3-user` |
@@ -490,6 +514,18 @@ helm upgrade langfuse langfuse/langfuse \
   -n langfuse \
   -f helm/values.yaml
 ```
+
+## Open Questions (Client)
+
+Items to confirm with the client before deployment:
+
+- [ ] **Existing VPC** — Does the client have an existing VPC we should deploy into, or do we create a new one?
+  - If existing: collect VPC ID, subnet IDs, CIDR range, NAT/IGW status
+  - If new: confirm region and CIDR (`10.0.0.0/16` default)
+- [ ] **Kubernetes** — Is the client already running Kubernetes / EKS?
+  - If yes: do they want Langfuse on their **existing cluster** or a **dedicated new cluster**?
+  - If existing cluster: get cluster name, version, node group capacity, namespace preferences
+  - If new cluster: proceed with `eksctl-cluster.yaml` or `eksctl-cluster-existing-vpc.yaml`
 
 ## Notes
 

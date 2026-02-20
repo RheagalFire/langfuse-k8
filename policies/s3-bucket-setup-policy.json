@@ -1,0 +1,34 @@
+{
+  "Description": "IAM policy for the operator creating the S3 bucket and IAM user during initial setup (Deployment Step 5). Not needed after initial setup.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3BucketCreation",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketEncryption",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketLocation",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::*"
+    },
+    {
+      "Sid": "IAMUserCreation",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateUser",
+        "iam:GetUser",
+        "iam:PutUserPolicy",
+        "iam:GetUserPolicy",
+        "iam:DeleteUserPolicy",
+        "iam:CreateAccessKey",
+        "iam:ListAccessKeys",
+        "iam:TagUser"
+      ],
+      "Resource": "arn:aws:iam::*:user/langfuse-s3-user"
+    }
+  ]
+}

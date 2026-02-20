@@ -1,0 +1,35 @@
+{
+  "Description": "IAM policy for the operator running Helm install/upgrade and kubectl commands against EKS. Provides EKS API access and ECR pull permissions needed during deployment.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EKSAccess",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeCluster",
+        "eks:ListClusters",
+        "eks:AccessKubernetesApi"
+      ],
+      "Resource": "arn:aws:eks:*:*:cluster/langfuse-cluster"
+    },
+    {
+      "Sid": "ECRPull",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "STSForKubeconfig",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
