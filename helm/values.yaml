@@ -1,0 +1,187 @@
+# Langfuse Helm Values
+# Chart: langfuse-1.5.20 | App: 3.153.0
+# Helm repo: https://langfuse.github.io/langfuse-k8s
+# Install:
+#   helm repo add langfuse https://langfuse.github.io/langfuse-k8s
+#   helm repo update
+#   kubectl apply -f helm/values-secrets.example.yaml   # Create K8s Secret first (with real values)
+#   helm install langfuse langfuse/langfuse -n langfuse --create-namespace -f values.yaml
+
+# ============================================================
+# Langfuse Application Config
+# ============================================================
+langfuse:
+  ingress:
+    enabled: false  # We manage ingress separately via ALB ingress manifests
+
+  nextauth:
+    url: https://<LANGFUSE_DOMAIN>
+    secret:
+      secretKeyRef:
+        name: langfuse-secrets
+        key: nextauth-secret
+
+  salt:
+    secretKeyRef:
+      name: langfuse-secrets
+      key: salt
+
+  encryptionKey:
+    secretKeyRef:
+      name: langfuse-secrets
+      key: encryption-key
+
+  # Additional env vars applied to both web and worker
+  additionalEnv:
+    # --- Init Admin User ---
+    - name: LANGFUSE_INIT_USER_EMAIL
+      value: <ADMIN_EMAIL>
+    - name: LANGFUSE_INIT_USER_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: langfuse-secrets
+          key: init-user-password
+    - name: LANGFUSE_INIT_ORG_ID
+      value: <ORG_ID>
+    - name: LANGFUSE_INIT_ORG_NAME
+      value: <ORG_NAME>
+
+    # --- Google SSO (optional) ---
+    - name: AUTH_GOOGLE_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: langfuse-secrets
+          key: google-client-id
+    - name: AUTH_GOOGLE_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: langfuse-secrets
+          key: google-client-secret
+    - name: AUTH_GOOGLE_ALLOW_ACCOUNT_LINKING
+      value: "true"
+    - name: AUTH_GOOGLE_ALLOWED_DOMAINS
+      value: <COMMA_SEPARATED_DOMAINS>
+    - name: AUTH_DOMAINS_WITH_SSO_ENFORCEMENT
+      value: <COMMA_SEPARATED_DOMAINS>
+
+  # --- Web ---
+  web:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  # --- Worker ---
+  worker:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1536Mi
+
+# ============================================================
+# S3 — Using AWS S3 directly (MinIO subchart disabled)
+# ============================================================
+s3:
+  deploy: false
+  bucket: <S3_BUCKET_NAME>
+  region: ap-south-1
+  endpoint: https://s3.ap-south-1.amazonaws.com
+  forcePathStyle: false
+  accessKeyId:
+    secretKeyRef:
+      name: langfuse-secrets
+      key: s3-access-key-id
+  secretAccessKey:
+    secretKeyRef:
+      name: langfuse-secrets
+      key: s3-secret-access-key
+  concurrency:
+    reads: 50
+    writes: 50
+  eventUpload:
+    enabled: true
+  batchExport:
+    enabled: true
+  mediaUpload:
+    enabled: true
+    maxContentLength: 1000000000
+    downloadUrlExpirySeconds: 3600
+
+# ============================================================
+# PostgreSQL
+# ============================================================
+postgresql:
+  auth:
+    database: langfuse
+    username: langfuse
+    existingSecret: langfuse-secrets
+    secretKeys:
+      userPasswordKey: postgresql-password
+  primary:
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    persistence:
+      size: 20Gi
+      storageClass: gp2
+
+# ============================================================
+# Redis (Valkey)
+# ============================================================
+redis:
+  auth:
+    existingSecret: langfuse-secrets
+    existingSecretPasswordKey: redis-password
+  master:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    persistence:
+      size: 2Gi
+      storageClass: gp2
+  replica:
+    replicaCount: 0
+
+# ============================================================
+# ClickHouse
+# ============================================================
+clickhouse:
+  auth:
+    existingSecret: langfuse-secrets
+    existingSecretKey: clickhouse-password
+  replicaCount: 1
+  shards: 1
+  resources:
+    requests:
+      cpu: "3500m"
+      memory: 26Gi
+    limits:
+      cpu: "3500m"
+      memory: 26Gi
+  persistence:
+    size: 200Gi
+    storageClassName: gp3
+  # ClickHouse is pinned to the dedicated r7g.xlarge node
+  nodeSelector:
+    workload-type: clickhouse
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: clickhouse
+      effect: NoSchedule

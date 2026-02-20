@@ -1,0 +1,61 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: langfuse-cluster
+  region: ap-south-1
+  version: "1.29"
+
+iam:
+  withOIDC: true
+
+addons:
+  - name: vpc-cni
+    version: latest
+  - name: coredns
+    version: latest
+  - name: kube-proxy
+    version: latest
+  - name: aws-ebs-csi-driver
+    version: latest
+    wellKnownPolicies:
+      ebsCSIController: true
+
+managedNodeGroups:
+  # General-purpose nodes for langfuse web, worker, postgres, redis
+  - name: langfuse-nodes
+    instanceType: t4g.medium
+    desiredCapacity: 3
+    minSize: 2
+    maxSize: 5
+    labels:
+      role: langfuse-worker
+      environment: production
+    volumeSize: 50
+    volumeType: gp3
+    amiFamily: AmazonLinux2
+    tags:
+      environment: production
+      nodegroup: langfuse-nodes
+
+  # Dedicated ClickHouse node - memory-optimized ARM64 Graviton3
+  - name: langfuse-clickhouse
+    instanceType: r7g.xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 1
+    labels:
+      workload-type: clickhouse
+      nodegroup: clickhouse
+      instance-family: r7g
+      environment: production
+    taints:
+      - key: dedicated
+        value: clickhouse
+        effect: NoSchedule
+    volumeSize: 100
+    volumeType: gp3
+    amiFamily: AmazonLinux2
+    tags:
+      environment: production
+      nodegroup: langfuse-clickhouse

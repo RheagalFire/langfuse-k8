@@ -1,0 +1,27 @@
+{
+  "Description": "IAM role and policies for the langfuse-clickhouse-cleanup Lambda function. The Lambda needs VPC access (to reach ClickHouse NodePort) and basic execution permissions (CloudWatch Logs).",
+  "TrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "Service": "lambda.amazonaws.com"
+        },
+        "Action": "sts:AssumeRole"
+      }
+    ]
+  },
+  "AttachedManagedPolicies": [
+    {
+      "PolicyName": "AWSLambdaBasicExecutionRole",
+      "PolicyArn": "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+      "Purpose": "CloudWatch Logs — create log group, create log stream, put log events"
+    },
+    {
+      "PolicyName": "AWSLambdaVPCAccessExecutionRole",
+      "PolicyArn": "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+      "Purpose": "Create/delete ENIs in the VPC so Lambda can reach ClickHouse NodePort"
+    }
+  ]
+}

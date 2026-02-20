@@ -1,0 +1,133 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pvc-monitor
+  namespace: langfuse
+spec:
+  schedule: "*/5 * * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: pvc-monitor
+          restartPolicy: OnFailure
+          containers:
+            - name: monitor
+              image: amazon/aws-cli:latest
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+
+                  # Detect architecture and install kubectl
+                  echo "Installing kubectl..."
+                  ARCH=$(uname -m)
+                  if [ "$ARCH" = "x86_64" ]; then
+                    KUBECTL_ARCH="amd64"
+                  elif [ "$ARCH" = "aarch64" ]; then
+                    KUBECTL_ARCH="arm64"
+                  else
+                    echo "Unsupported architecture: $ARCH"
+                    exit 1
+                  fi
+
+                  echo "Architecture: $ARCH, Downloading kubectl for: $KUBECTL_ARCH"
+                  curl -sLO "https://dl.k8s.io/release/v1.28.0/bin/linux/${KUBECTL_ARCH}/kubectl"
+                  chmod +x kubectl
+                  mv kubectl /usr/local/bin/
+
+                  kubectl version --client --short || true
+
+                  # Configuration
+                  CLUSTER_NAME="langfuse-cluster"
+                  REGION="ap-south-1"
+                  NAMESPACE="langfuse"
+
+                  echo "========================================="
+                  echo "PVC Monitoring Started: $(date)"
+                  echo "Cluster: $CLUSTER_NAME"
+                  echo "Namespace: $NAMESPACE"
+                  echo "========================================="
+
+                  check_pod() {
+                    local pod_name=$1
+                    local mount_grep=$2
+
+                    echo ""
+                    echo "--- Checking Pod: $pod_name ---"
+
+                    pod_status=$(kubectl get pod $pod_name -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
+
+                    if [ "$pod_status" != "Running" ]; then
+                      echo "  Pod not running (status: $pod_status), skipping..."
+                      return
+                    fi
+
+                    disk_info=$(kubectl exec -n $NAMESPACE $pod_name -- df -BG 2>/dev/null | grep -E "$mount_grep" | head -1 || echo "")
+
+                    if [ -z "$disk_info" ]; then
+                      echo "  Could not get disk info for mount pattern: $mount_grep"
+                      return
+                    fi
+
+                    total_gb=$(echo "$disk_info" | awk '{print $2}' | sed 's/G//')
+                    used_gb=$(echo "$disk_info" | awk '{print $3}' | sed 's/G//')
+                    usage_pct=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
+                    mount_point=$(echo "$disk_info" | awk '{print $6}')
+
+                    echo "  Mount: $mount_point"
+                    echo "  Total: ${total_gb}GB | Used: ${used_gb}GB | Usage: ${usage_pct}%"
+
+                    pvc_name=$(kubectl get pod $pod_name -n $NAMESPACE -o jsonpath='{.spec.volumes[?(@.persistentVolumeClaim)].persistentVolumeClaim.claimName}' 2>/dev/null | awk '{print $1}')
+
+                    if [ -z "$pvc_name" ]; then
+                      echo "  No PVC found for this pod"
+                      return
+                    fi
+
+                    echo "  PVC: $pvc_name"
+                    echo "  Pushing metrics to CloudWatch..."
+
+                    aws cloudwatch put-metric-data \
+                      --namespace "LangfusePVC" \
+                      --metric-name UsagePercent \
+                      --value $usage_pct \
+                      --dimensions ClusterName=$CLUSTER_NAME,Namespace=$NAMESPACE,PVCName=$pvc_name,PodName=$pod_name \
+                      --region $REGION \
+                      --timestamp $(date -u +"%Y-%m-%dT%H:%M:%SZ") 2>&1 | head -3
+
+                    aws cloudwatch put-metric-data \
+                      --namespace "LangfusePVC" \
+                      --metric-name UsedGB \
+                      --value $used_gb \
+                      --dimensions ClusterName=$CLUSTER_NAME,Namespace=$NAMESPACE,PVCName=$pvc_name,PodName=$pod_name \
+                      --region $REGION 2>&1 | head -3
+
+                    aws cloudwatch put-metric-data \
+                      --namespace "LangfusePVC" \
+                      --metric-name TotalGB \
+                      --value $total_gb \
+                      --dimensions ClusterName=$CLUSTER_NAME,Namespace=$NAMESPACE,PVCName=$pvc_name,PodName=$pod_name \
+                      --region $REGION 2>&1 | head -3
+
+                    echo "  Metrics pushed successfully!"
+                  }
+
+                  check_pod "langfuse-clickhouse-shard0-0" "/bitnami/clickhouse"
+                  check_pod "langfuse-postgresql-0" "/bitnami/postgresql|/var/lib/postgresql"
+                  check_pod "langfuse-redis-primary-0" "/bitnami/redis|/data"
+
+                  echo ""
+                  echo "========================================="
+                  echo "PVC Monitoring Completed: $(date)"
+                  echo "========================================="

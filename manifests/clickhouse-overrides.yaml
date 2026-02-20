@@ -1,0 +1,48 @@
+# ClickHouse StatefulSet reference spec
+#
+# With right-sized helm values, nodeSelector, tolerations, and resources
+# are all set directly in helm/values.yaml. No post-install patching needed.
+#
+# Node: r7g.xlarge (4 vCPU, 32 GiB RAM) - ARM64 Graviton3
+# Container: 3.5 CPU / 26Gi RAM (leaves ~0.5 CPU / ~5Gi for kubelet + system)
+# Storage: 200Gi gp3
+#
+# This file is kept as a reference for the running StatefulSet spec.
+# If you need to patch manually (e.g., after a helm upgrade resets values):
+#
+#   kubectl patch statefulset langfuse-clickhouse-shard0 -n langfuse --type='json' -p='[
+#     {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/cpu", "value": "3500m"},
+#     {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/memory", "value": "26Gi"},
+#     {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/cpu", "value": "3500m"},
+#     {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/memory", "value": "26Gi"},
+#     {"op": "replace", "path": "/spec/template/spec/nodeSelector", "value": {"workload-type": "clickhouse"}},
+#     {"op": "add", "path": "/spec/template/spec/tolerations", "value": [{"key": "dedicated", "operator": "Equal", "value": "clickhouse", "effect": "NoSchedule"}]}
+#   ]'
+
+---
+# Reference: Full ClickHouse StatefulSet spec (nodeSelector + tolerations + resources)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: langfuse-clickhouse-shard0
+  namespace: langfuse
+spec:
+  template:
+    spec:
+      nodeSelector:
+        workload-type: clickhouse
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: clickhouse
+          effect: NoSchedule
+      containers:
+        - name: clickhouse
+          image: docker.io/bitnamilegacy/clickhouse:25.2.1-debian-12-r0
+          resources:
+            requests:
+              cpu: "3500m"
+              memory: 26Gi
+            limits:
+              cpu: "3500m"
+              memory: 26Gi
